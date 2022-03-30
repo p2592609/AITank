@@ -1,0 +1,216 @@
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
+
+public class SmartTank : AITank
+{
+    public Dictionary<GameObject, float> targetTanksFound = new Dictionary<GameObject, float>();
+    public Dictionary<GameObject, float> consumablesFound = new Dictionary<GameObject, float>();
+    public Dictionary<GameObject, float> basesFound = new Dictionary<GameObject, float>();
+
+    public GameObject targetTankPosition;
+    public GameObject consumablePosition;
+    public GameObject basePosition;
+    public BTAction healthCheck;
+    public BTAction ammoCheck;
+    public BTAction targetSpottedCheck;
+    public BTAction targetReachedCheck;
+    public BTSequence regenSequence;
+
+
+
+    public enum BTNodeStates
+    {
+        SUCCESSS,
+        FAILURE,
+
+    }
+
+    public abstract class BTBaseNode
+    {
+
+
+        protected BTNodeStates btNodeState;
+
+
+        public BTNodeStates BTNodeState
+        {
+            get { return btNodeState; }
+        }
+
+
+        public abstract BTNodeStates Evaluate();
+
+    }
+
+    public class BTSequence : BTBaseNode
+    {
+
+        protected List<BTBaseNode> btNodes = new List<BTBaseNode>();
+
+
+        public BTSequence(List<BTBaseNode> btNodes)
+        {
+            this.btNodes = btNodes;
+        }
+
+        public override BTNodeStates Evaluate()
+        {
+            bool failed = false;
+            foreach (BTBaseNode btNode in btNodes)
+            {
+                if (failed == true)
+                {
+                    break;
+                }
+                switch (btNode.Evaluate())
+                {
+                    case BTNodeStates.FAILURE:
+                        btNodeState = BTNodeStates.FAILURE;
+                        failed = true;
+                        break;
+                    case BTNodeStates.SUCCESS:
+                        btNodeState = BTNodeStates.SUCCESS;
+                        continue;
+                    default:
+                        btNodeState = BTNodeStates.FAILURE;
+                        failed = true;
+                        break;
+                }
+            }
+            return btNodeState;
+        }
+    }
+
+
+    public class BTSelector : BTBaseNode
+    {
+
+        protected List<BTBaseNode> btNodes = new List<BTBaseNode>();
+
+        public BTSelector(List<BTBaseNode> btNodes)
+        {
+            this.btNodes = btNodes;
+        }
+
+        public override BTNodeStates Evaluate()
+        {
+            foreach (BTBaseNode btNode in btNodes)
+            {
+                switch (btNode.Evaluate())
+                {
+                    case BTNodeStates.FAILURE:
+                        continue;
+                    case BTNodeStates.SUCCESS:
+                        btNodeState = BTNodeStates.SUCCESS;
+                        return btNodeState;
+                    default:
+                        continue;
+                }
+            }
+            btNodeState = BTNodeStates.FAILURE;
+            return btNodeState;
+        }
+    }
+
+
+
+
+
+    float t;
+
+
+    public override void AITankStart()
+    {
+        healthCheck = new BTAction(HealthCheck);
+        ammoCheck = new BTAction(AmmoCheck);
+        targetSpottedCheck = new BTAction(TargetSpottedCheck);
+        regenSequence = new BTSequence(new List<BTBaseNode> { healthCheck, ammoCheck });
+
+
+
+    }
+
+
+    public BTNodeStates HealthCheck()
+    {
+        if (GetHealthLevel < 50)
+        {
+            consumablePosition = consumablesFound.First().Key;
+            FollowPathToPoint(consumablePosition, 1f);
+            t += Time.deltaTime;
+            if (t > 10)
+            {
+                GenerateRandomPoint();
+                t = 0;
+            }
+            return BTNodeStates.FAILURE;
+        }
+        else
+        {
+            targetTankPosition = null;
+            consumablePosition = null;
+            basePosition = null;
+            FollowPathToRandomPoint(1f);
+            return BTNodeStates.SUCCESS;
+        }
+    }
+
+    public BTNodeStates AmmoCheck()
+    {
+        if (GetAmmoLevel < 5)
+        {
+            consumablePosition = consumablesFound.First().Key;
+            FollowPathToPoint(consumablePosition, 1f);
+            t += Time.deltaTime;
+            if (t > 10)
+            {
+                GenerateRandomPoint();
+                t = 0;
+            }
+            return BTNodeStates.FAILURE;
+        }
+        else
+        {
+            targetTankPosition = null;
+            consumablePosition = null;
+            basePosition = null;
+            FollowPathToRandomPoint(1f);
+            return BTNodeStates.SUCCESS;
+        }
+    }
+
+    public BTNodeStates TargetSpottedCheck()
+    {
+        if (targetTanksFound.Count > 0 && targetTanksFound.First().Key != null)
+        {
+
+            targetTankPosition = targetTanksFound.First().Key;
+            if (targetTankPosition != null)
+            {
+                if (Vector3.Distance(transform.position, targetTankPosition.transform.position) < 25f)
+                {
+                    FireAtPoint(targetTankPosition);
+                }
+                else
+                {
+                    FollowPathToPoint(targetTankPosition, 1f);
+                }
+            }
+            return BTNodeStates.SUCCESS;
+        }
+        else
+        {
+            return BTNodeStates.FAILURE;
+        }
+    }
+
+
+
+
+
+    public override void AIOnCollisionEnter(Collision collision)
+    {
+    }
+}
