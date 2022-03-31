@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
-public class SmartTank_BBT_FSMRB : AITank
+public class SmartTank_BBT_RB : AITank
 {
     public Dictionary<GameObject, float> targetTanksFound = new Dictionary<GameObject, float>();
     public Dictionary<GameObject, float> consumablesFound = new Dictionary<GameObject, float>();
@@ -17,14 +17,16 @@ public class SmartTank_BBT_FSMRB : AITank
     float t;
 
     public Dictionary<string, bool> stats = new Dictionary<string, bool>();
-    public Rules_BBT_FSMRB rules = new Rules_BBT_FSMRB();
+    public Rules_BBT_RB rules = new Rules_BBT_RB();
     public bool lowHealth;
     public bool lowAmmo;
+    public bool lowFuel;
 
     public bool isAttacking = false;
     public bool isSearching = false;
     public bool fleeAmmo = false;
     public bool fleeHealth = false;
+    public bool fleeFuel = false;
     public bool isChasing = false;
 
 
@@ -33,9 +35,9 @@ public class SmartTank_BBT_FSMRB : AITank
     *******************************************************************************************************/
     public override void AITankStart()
     {
-        Application.targetFrameRate = 60;
         stats.Add("lowHealth", lowHealth);
         stats.Add("lowAmmo", lowAmmo);
+        stats.Add("lowFuel", lowFuel);
         stats.Add("targetSpotted", false);
         stats.Add("targetReached", false);
         stats.Add("fleeState", false);
@@ -45,14 +47,14 @@ public class SmartTank_BBT_FSMRB : AITank
 
 
 
-        rules.AddRule(new Rule_BBT_FSMRB("attackState", "lowHealth", typeof(FleeHealthState_BBT_FSMRB), Rule_BBT_FSMRB.Predicate.And));
-        rules.AddRule(new Rule_BBT_FSMRB("attackState", "lowAmmo", typeof(FleeAmmoState_BBT_FSMRB), Rule_BBT_FSMRB.Predicate.And));
-        rules.AddRule(new Rule_BBT_FSMRB("searchState", "targetSpotted", typeof(ChaseState_BBT_FSMRB), Rule_BBT_FSMRB.Predicate.And));
-        rules.AddRule(new Rule_BBT_FSMRB("searchState", "targetSpotted", typeof(SearchState_BBT_FSMRB), Rule_BBT_FSMRB.Predicate.nAnd));
-        rules.AddRule(new Rule_BBT_FSMRB("chaseState", "targetReached", typeof(AttackState_BBT_FSMRB), Rule_BBT_FSMRB.Predicate.And));
+        rules.AddRule(new Rule_BBT_RB("attackState", "lowHealth", fleeHealth, Rule_BBT_RB.Predicate.And));
+        rules.AddRule(new Rule_BBT_RB("attackState", "lowAmmo", fleeAmmo, Rule_BBT_RB.Predicate.And));
+        rules.AddRule(new Rule_BBT_RB("attackState", "lowFuel", fleeFuel, Rule_BBT_RB.Predicate.And));
+        rules.AddRule(new Rule_BBT_RB("searchState", "targetSpotted", isChasing, Rule_BBT_RB.Predicate.And));
+        rules.AddRule(new Rule_BBT_RB("searchState", "targetSpotted", isSearching, Rule_BBT_RB.Predicate.nAnd));
+        rules.AddRule(new Rule_BBT_RB("chaseState", "targetReached", isAttacking, Rule_BBT_RB.Predicate.And));
 
-
-        InitializeStateMachine();
+        Application.targetFrameRate = 60;
     }
 
     /*******************************************************************************************************       
@@ -67,6 +69,64 @@ public class SmartTank_BBT_FSMRB : AITank
         consumablesFound = GetAllConsumablesFound;
         basesFound = GetAllBasesFound;
 
+        //foreach (var item in rules.GetRules)
+        //{
+        //    if (item.CheckRule(stats) != null)
+        //    {
+        //        item.consequentState = item.CheckRule(stats);
+
+        //    }
+
+        //}
+
+
+        if (isAttacking)
+        {
+            stats["attackState"] = true;
+            Attack();
+        }
+        else
+        {
+            stats["attackState"] = false;
+        }
+
+        if (fleeAmmo)
+        {
+            FleeGetAmmo();
+        }
+
+
+        if (fleeHealth)
+        {
+            FleeGetHealth();
+        }
+
+        if (fleeFuel)
+        {
+            FleeGetFuel();
+        }
+
+        if (isChasing)
+        {
+
+            Chase();
+            stats["chaseState"] = true;
+        }
+        else
+        {
+            stats["chaseState"] = false;
+        }
+
+        if (isSearching)
+        {
+            stats["searchState"] = true;
+            Search();
+
+        }
+        else
+        {
+            stats["searchState"] = false;
+        }
 
 
 
@@ -80,9 +140,39 @@ public class SmartTank_BBT_FSMRB : AITank
             stats["lowAmmo"] = true;
         }
 
-        
+        if (GetFuelLevel <= 30f)
+        {
+            stats["lowFuel"] = true;
+        }
 
-        
+        CheckTargetSpotted();
+        CheckTargetReached();
+
+        List<Rule_BBT_RB> RuleList = rules.GetRules;
+        if (RuleList[0].CheckRule(stats) != null)
+        {
+            fleeHealth = RuleList[0].CheckRule(stats);
+        }
+        if (RuleList[1].CheckRule(stats) != null)
+        {
+            fleeAmmo = RuleList[1].CheckRule(stats);
+        }
+        if (RuleList[3].CheckRule(stats) != null)
+        {
+            isChasing = RuleList[3].CheckRule(stats);
+        }
+        if (RuleList[4].CheckRule(stats) != null)
+        {
+            isSearching = RuleList[4].CheckRule(stats);
+        }
+        if (RuleList[5].CheckRule(stats) != null)
+        {
+            isAttacking = RuleList[5].CheckRule(stats);
+        }
+        if (RuleList[2].CheckRule(stats) != null)
+        {
+            fleeFuel = RuleList[2].CheckRule(stats);
+        }
     }
 
     /*******************************************************************************************************       
@@ -90,19 +180,6 @@ public class SmartTank_BBT_FSMRB : AITank
     *******************************************************************************************************/
     public override void AIOnCollisionEnter(Collision collision)
     {
-    }
-
-    private void InitializeStateMachine()
-    {
-        Dictionary<Type, BaseState_BBT_FSMRB> states = new Dictionary<Type, BaseState_BBT_FSMRB>();
-
-        states.Add(typeof(FleeAmmoState_BBT_FSMRB), new FleeAmmoState_BBT_FSMRB(this));
-        states.Add(typeof(FleeHealthState_BBT_FSMRB), new FleeHealthState_BBT_FSMRB(this));
-        states.Add(typeof(SearchState_BBT_FSMRB), new SearchState_BBT_FSMRB(this));
-        states.Add(typeof(ChaseState_BBT_FSMRB), new ChaseState_BBT_FSMRB(this));
-        states.Add(typeof(AttackState_BBT_FSMRB), new AttackState_BBT_FSMRB(this));
-
-        GetComponent<StateMachine_BBT_FSMRB>().SetStates(states);
     }
 
     public void FleeGetHealth()
@@ -128,9 +205,6 @@ public class SmartTank_BBT_FSMRB : AITank
 
             FollowPathToRandomPoint(1f);
         }
-
-        CheckTargetSpotted();
-        CheckTargetReached();
     }
 
     public void FleeGetAmmo()
@@ -156,9 +230,6 @@ public class SmartTank_BBT_FSMRB : AITank
 
             FollowPathToRandomPoint(1f);
         }
-
-        CheckTargetSpotted();
-        CheckTargetReached();
     }
 
     public void CheckTargetSpotted()
@@ -193,9 +264,6 @@ public class SmartTank_BBT_FSMRB : AITank
     public void Attack()
     {
         FireAtPoint(targetTankPosition);
-
-        CheckTargetSpotted();
-        CheckTargetReached();
     }
 
     public void Chase()
@@ -203,13 +271,26 @@ public class SmartTank_BBT_FSMRB : AITank
         if (targetTankPosition != null)
         {
 
-
-
-            FollowPathToPoint(targetTankPosition, 0.1f);
+            // chase while states are all OK and target isnt too far to chase
+            while (!lowFuel && !lowHealth && !lowAmmo && Vector3.Distance(transform.position, targetTankPosition.transform.position) < 40f) ;
+            {
+                // if high fuel levels, increase speed to take advantage of resource abundance
+                if (GetFuelLevel >= 80f)
+                {
+                    FollowPathToPoint(targetTankPosition, 1f);
+                }
+                // otherwise chase at base speed
+                else if (!lowFuel)
+                {
+                    FollowPathToPoint(targetTankPosition, 0.5f);
+                }
+                else
+                {
+                    FleeGetFuel();
+                }
+            }
 
         }
-        CheckTargetSpotted();
-        CheckTargetReached();
     }
 
     public void Search()
@@ -247,18 +328,31 @@ public class SmartTank_BBT_FSMRB : AITank
 
             consumablePosition = null;
             basePosition = null;
-            FollowPathToRandomPoint(0.5f);
-            t += Time.deltaTime;
-            if (t > 7)
-            {
-                GenerateRandomPoint();
-                FollowPathToRandomPoint(0.5f);
-
-                t = 0;
-            }
+            FollowPathToRandomPoint(1f);
         }
-        CheckTargetSpotted();
-        CheckTargetReached();
     }
 
+    public void FleeGetFuel()
+    {
+        if (consumablesFound.Count > 0)
+        {
+            for (int i = 0; i < consumablesFound.Count() - 1; i++)
+            {
+                if (consumablesFound.Keys.ElementAt(i).tag == "Fuel")
+                {
+
+                    consumablePosition = consumablesFound.Keys.ElementAt(i);
+                }
+
+            }
+            FollowPathToPoint(consumablePosition, 1.5f);
+        }
+        else
+        {
+
+            consumablePosition = null;
+
+            FollowPathToRandomPoint(0.5f);
+        }
+    }
 }

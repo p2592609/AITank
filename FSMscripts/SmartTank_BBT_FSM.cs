@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
-public class SmartTank_BBT_FSMRB : AITank
+public class SmartTank_BBT_FSM : AITank
 {
     public Dictionary<GameObject, float> targetTanksFound = new Dictionary<GameObject, float>();
     public Dictionary<GameObject, float> consumablesFound = new Dictionary<GameObject, float>();
@@ -16,16 +16,11 @@ public class SmartTank_BBT_FSMRB : AITank
 
     float t;
 
-    public Dictionary<string, bool> stats = new Dictionary<string, bool>();
-    public Rules_BBT_FSMRB rules = new Rules_BBT_FSMRB();
+
     public bool lowHealth;
     public bool lowAmmo;
 
-    public bool isAttacking = false;
-    public bool isSearching = false;
-    public bool fleeAmmo = false;
-    public bool fleeHealth = false;
-    public bool isChasing = false;
+   
 
 
     /*******************************************************************************************************      
@@ -33,23 +28,7 @@ public class SmartTank_BBT_FSMRB : AITank
     *******************************************************************************************************/
     public override void AITankStart()
     {
-        Application.targetFrameRate = 60;
-        stats.Add("lowHealth", lowHealth);
-        stats.Add("lowAmmo", lowAmmo);
-        stats.Add("targetSpotted", false);
-        stats.Add("targetReached", false);
-        stats.Add("fleeState", false);
-        stats.Add("chaseState", false);
-        stats.Add("searchState", false);
-        stats.Add("attackState", false);
-
-
-
-        rules.AddRule(new Rule_BBT_FSMRB("attackState", "lowHealth", typeof(FleeHealthState_BBT_FSMRB), Rule_BBT_FSMRB.Predicate.And));
-        rules.AddRule(new Rule_BBT_FSMRB("attackState", "lowAmmo", typeof(FleeAmmoState_BBT_FSMRB), Rule_BBT_FSMRB.Predicate.And));
-        rules.AddRule(new Rule_BBT_FSMRB("searchState", "targetSpotted", typeof(ChaseState_BBT_FSMRB), Rule_BBT_FSMRB.Predicate.And));
-        rules.AddRule(new Rule_BBT_FSMRB("searchState", "targetSpotted", typeof(SearchState_BBT_FSMRB), Rule_BBT_FSMRB.Predicate.nAnd));
-        rules.AddRule(new Rule_BBT_FSMRB("chaseState", "targetReached", typeof(AttackState_BBT_FSMRB), Rule_BBT_FSMRB.Predicate.And));
+       
 
 
         InitializeStateMachine();
@@ -72,17 +51,18 @@ public class SmartTank_BBT_FSMRB : AITank
 
         if (GetHealthLevel < 50)
         {
-            stats["lowHealth"] = true;
+            lowHealth = true;
         }
 
         if (GetAmmoLevel < 5)
         {
-            stats["lowAmmo"] = true;
+            lowAmmo = true;
         }
 
-        
 
-        
+
+        CheckTargetSpotted();
+        CheckTargetReached();
     }
 
     /*******************************************************************************************************       
@@ -94,108 +74,82 @@ public class SmartTank_BBT_FSMRB : AITank
 
     private void InitializeStateMachine()
     {
-        Dictionary<Type, BaseState_BBT_FSMRB> states = new Dictionary<Type, BaseState_BBT_FSMRB>();
+        Dictionary<Type, BaseState_BBT_FSM> states = new Dictionary<Type, BaseState_BBT_FSM>();
 
-        states.Add(typeof(FleeAmmoState_BBT_FSMRB), new FleeAmmoState_BBT_FSMRB(this));
-        states.Add(typeof(FleeHealthState_BBT_FSMRB), new FleeHealthState_BBT_FSMRB(this));
-        states.Add(typeof(SearchState_BBT_FSMRB), new SearchState_BBT_FSMRB(this));
-        states.Add(typeof(ChaseState_BBT_FSMRB), new ChaseState_BBT_FSMRB(this));
-        states.Add(typeof(AttackState_BBT_FSMRB), new AttackState_BBT_FSMRB(this));
+        //states.Add(typeof(FleeAmmoState_BBT_FSMRBBT), new FleeAmmoState_BBT_FSMRBBT(this));
+        states.Add(typeof(FleeState_BBT_FSM), new FleeState_BBT_FSM(this));
+        states.Add(typeof(ScoutState_BBT_FSM), new ScoutState_BBT_FSM(this));
+        states.Add(typeof(ChaseState_BBT_FSM), new ChaseState_BBT_FSM(this));
+        states.Add(typeof(AttackState_BBT_FSM), new AttackState_BBT_FSM(this));
 
-        GetComponent<StateMachine_BBT_FSMRB>().SetStates(states);
+        GetComponent<StateMachine_BBT_FSM>().setStates(states);
     }
 
-    public void FleeGetHealth()
-    {
 
+    public void Flee()
+    {
         if (consumablesFound.Count > 0)
         {
-            for (int i = 0; i < consumablesFound.Count() - 1; i++)
-            {
-                if (consumablesFound.Keys.ElementAt(i).tag == "Health")
-                {
-
-                    consumablePosition = consumablesFound.Keys.ElementAt(i);
-                }
-
-            }
+            consumablePosition = consumablesFound.First().Key;
             FollowPathToPoint(consumablePosition, 1f);
+            t += Time.deltaTime;
+            if (t > 10)
+            {
+                GenerateRandomPoint();
+                t = 0;
+            }
+        }
+        else if (CheckTargetSpotted())
+        {
+            GenerateRandomPoint();
+            FollowPathToRandomPoint(1f);
         }
         else
         {
 
             consumablePosition = null;
-
+            basePosition = null;
             FollowPathToRandomPoint(1f);
         }
-
-        CheckTargetSpotted();
-        CheckTargetReached();
+        
     }
 
-    public void FleeGetAmmo()
-    {
-
-        if (consumablesFound.Count > 0)
-        {
-            for (int i = 0; i < consumablesFound.Count() - 1; i++)
-            {
-                if (consumablesFound.Keys.ElementAt(i).tag == "Ammo")
-                {
-
-                    consumablePosition = consumablesFound.Keys.ElementAt(i);
-                }
-
-            }
-            FollowPathToPoint(consumablePosition, 1f);
-        }
-        else
-        {
-
-            consumablePosition = null;
-
-            FollowPathToRandomPoint(1f);
-        }
-
-        CheckTargetSpotted();
-        CheckTargetReached();
-    }
-
-    public void CheckTargetSpotted()
+    public bool CheckTargetSpotted()
     {
         if (targetTanksFound.Count > 0 && targetTanksFound.First().Key != null)
         {
             targetTankPosition = targetTanksFound.First().Key;
-            stats["targetSpotted"] = true;
+            return true;
         }
         else
         {
-            stats["targetSpotted"] = false;
+            return false;
         }
 
     }
 
-    public void CheckTargetReached()
+    public bool CheckTargetReached()
     {
-        if (stats["targetSpotted"] == true)
+        if (CheckTargetSpotted())
         {
             if (Vector3.Distance(transform.position, targetTankPosition.transform.position) < 25f)
             {
-                stats["targetReached"] = true;
+                targetTankPosition = targetTanksFound.First().Key;
+                return true;
             }
             else
             {
-                stats["targetReached"] = false;
+                return false;
             }
         }
+        else return false;
     }
 
     public void Attack()
     {
         FireAtPoint(targetTankPosition);
 
-        CheckTargetSpotted();
-        CheckTargetReached();
+        
     }
 
     public void Chase()
@@ -205,11 +159,10 @@ public class SmartTank_BBT_FSMRB : AITank
 
 
 
-            FollowPathToPoint(targetTankPosition, 0.1f);
+            FollowPathToPoint(targetTankPosition, 1f);
 
         }
-        CheckTargetSpotted();
-        CheckTargetReached();
+        
     }
 
     public void Search()
@@ -247,18 +200,19 @@ public class SmartTank_BBT_FSMRB : AITank
 
             consumablePosition = null;
             basePosition = null;
-            FollowPathToRandomPoint(0.5f);
-            t += Time.deltaTime;
-            if (t > 7)
-            {
-                GenerateRandomPoint();
-                FollowPathToRandomPoint(0.5f);
-
-                t = 0;
-            }
+            FollowPathToRandomPoint(1f);
         }
-        CheckTargetSpotted();
-        CheckTargetReached();
+       
     }
 
+    bool GetLowHealth()
+    {
+        return lowHealth;
+    }
+
+    bool GetLowAmmo()
+    {
+        return lowAmmo;
+    }
 }
+
